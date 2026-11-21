@@ -1,0 +1,14 @@
+{
+  "family": "PROTORIG Panel Sans",
+  "upstream": "Noto Sans SC (Google Fonts, OFL-1.1)",
+  "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
+  "license": "OFL-1.1",
+  "generator": "tools/build_panel_fonts.py",
+  "weights": {
+    "Regular": 400,
+    "Medium": 500,
+    "Bold": 700
+  },
+  "subset": "ASCII+Latin-1+punct+arrows+geometric+misc symbols+dingbats+CJK punct+fullwidth+GB2312",
+  "note": "子集化 + 改名为 PROTORIG Panel Sans；随 npm 包分发，保证 macOS/Windows 同一字体"
+}

@@ -1,0 +1,20 @@
+# Firmware build output (regenerate with .\build.ps1)
+build/
+build_clean.log
+build.log
+artifacts/
+
+# Make binaries supplied by the Bouffalo SDK
+tools/make/*.exe
+tools/make/*.dll
+
+# binaries / maps
+*.bin
+*.elf
+*.map
+*.hex
+*.xz
+*.ota
+
+# host unit test build output
+tests/host/build_host/

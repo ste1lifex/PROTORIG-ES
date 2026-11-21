@@ -1,0 +1,15 @@
+# pnpm 11 的项目设置（package.json 里的 "pnpm" 字段从 v11 起不再读取）。
+#
+# @serialport/bindings-cpp 的 install 脚本是 node-gyp-build：只做「挑对应平台的
+# 预编译二进制」这件事（不编译源码）。允许它跑，macOS / Linux / Windows 都不需要
+# 本地 C++ 工具链 —— 与 README「三个原生依赖都走预编译」一致。
+#
+# 由 `pnpm approve-builds --all` 生成；作用是让 `pnpm install` / `pnpm ci`
+# 在 macOS 上也能干净退出（不报 ERR_PNPM_IGNORED_BUILDS）。
+allowBuilds:
+  '@serialport/bindings-cpp': true
+  # BLE：npm 原生绑定（macOS CoreBluetooth / Windows WinRT），安装脚本只选预编译
+  '@stoprocent/noble': true
+  '@stoprocent/bluetooth-hci-socket': true
+  # HCI 可选依赖（Linux/UART dongle），同样只选预编译
+  usb: true

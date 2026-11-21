@@ -1,0 +1,113 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2cc38fb..ba9d42f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -108,15 +108,10 @@ target_sources(app PRIVATE eez_ui_glue.c)
+ target_sources(app PRIVATE pc_monitor.c monitor_protocol.c)
+ 
+ # ---------------------------------------------------------------------------
+-# BLE（M2 W1 已完成集成，按"先地基后楼层"决定推迟到 R4 再编入）
+-#
+-#   已完成并保留源码/分支（见 patches/W1_ble_integration.patch 与 git 分支
+-#   w1-ble-integration）：
+-#     ble_link.c —— rfparam_init -> controller -> host -> GATT 注册 -> 广播
+-#     ble_svc.c  —— DIS 0x180A / BAS 0x180F / CTS 0x1805 / 自定义服务
+-#     ble_ui.c   —— BLE 事件队列 -> LVGL 任务消费（W1 只留桩）
+-#
+-#   R1（纯搬移）期间**不参与编译**，避免在重构地基上同时动协议栈。
+-#   R4 接入时恢复下面这行即可（defconfig 里也需恢复 CONFIG_BLUETOOTH/RF）。
++# BLE（M2，W1 2026-10-28）
++#   ble_link.c —— rfparam_init -> controller -> host -> GATT 注册 -> 广播
++#   ble_svc.c  —— DIS 0x180A / BAS 0x180F / CTS 0x1805 / 自定义服务
++#   ble_ui.c   —— BLE 事件队列 -> LVGL 任务消费（W1 只留桩）
++# 原探针工程 firmware_ble_probe 不动；这里是改名后的并入副本。
+ # ---------------------------------------------------------------------------
+-# target_sources(app PRIVATE ble_link.c ble_svc.c ble_ui.c)
++target_sources(app PRIVATE ble_link.c ble_svc.c ble_ui.c)
+diff --git a/defconfig b/defconfig
+index c1f5ab3..403eda3 100644
+--- a/defconfig
++++ b/defconfig
+@@ -10,15 +10,16 @@ CONFIG_FREERTOS             =y
+ CONFIG_SHELL                =y
+ 
+ # ---------------------------------------------------------------------------
+-# BLE（M2 W1 已完成集成，按"先地基后楼层"推迟到 R4 再打开）
+-#
+-#   R0/R1 基线不编 BLE：BLE 集成源码与补丁保留（ble_link/ble_svc/ble_ui +
+-#   patches/W1_ble_integration.patch，git 分支 w1-ble-integration）。
+-#   R4 恢复时把下面三行加回来：
+-#     CONFIG_BLUETOOTH            =y
+-#     CONFIG_RF                   =y
+-#     CONFIG_BTBLECONTROLLER_LIB  =ble1m0s1bredr0
++# BLE（M2，探针并入；W1 2026-10-28）
++#   * BL616 BLE-only：1 连接 / 从机，libbtblecontroller 用 ble1m0s1bredr0
++#   * CONFIG_RF 是 rfparam_init()（PHY 校准）需要的
++#   * 不要加 CONFIG_BFLB_MTD / CONFIG_PARTITION / CONFIG_LITTLEFS：
++#     CONFIG_BT_SETTINGS 默认 n，host 不用 flash KV；将来做绑定再一起加
++#   * 不要加 CONFIG_BT_OAD_SERVER：OAD 需要额外分区，M2 不做 BLE OTA
+ # ---------------------------------------------------------------------------
++CONFIG_BLUETOOTH            =y
++CONFIG_RF                   =y
++CONFIG_BTBLECONTROLLER_LIB  =ble1m0s1bredr0
+ 
+ # USB CDC 虚拟串口控制台（printf / shell 都走 USB-C）
+ CONFIG_CHERRYUSB                 =y
+diff --git a/main.c b/main.c
+index bceb255..aec2153 100644
+--- a/main.c
++++ b/main.c
+@@ -55,9 +55,11 @@
+ #include "motor.h"
+ #include "rtc_seed.h"
+ 
+-/* M2：BLE 集成（ble_link/ble_svc/ble_ui）已完成但按"先地基后楼层"推迟到
+- * R4 再接入（源码与补丁保留：patches/W1_ble_integration.patch，
+- * git 分支 w1-ble-integration）。R1 只做纯搬移，不编 BLE。 */
++/* M2：BLE（探针并入）。GATT 事件经 FreeRTOS 队列 -> ble_ui_poll()，
++ * LVGL 是 LV_OS_NONE，BLE 回调绝不直接调 lv_*。 */
++#include "ble_link.h"
++#include "ble_svc.h"
++#include "ble_ui.h"
+ 
+ #include "shell.h"
+ #include "usbd_core.h"
+@@ -459,6 +461,11 @@ static void batt_timer_cb(lv_timer_t *t)
+     filt = (filt < 0) ? mv : (filt + (mv - filt) / 4);
+     pct = board_adc_battery_percent(filt);
+ 
++    /* M2：真实电量同步到 BAS（已订阅时顺带 notify）。
++     * 注意：这里跑在 LVGL 任务上下文，bt_gatt_notify 是 blestack 线程安全
++     * 接口；若上板发现卡顿，W2 改成"只更新等级，由 BLE 任务通知"。 */
++    ble_svc_battery_update((uint8_t)pct);
++
+     /* 充电状态：V1.6 有 CHRG(IO3) / STDBY(IO21) 两根独立状态脚，
+      * 不再是 V1.5 那种"借 TP_INT 线猜"的做法。开漏低有效。 */
+     chg = chrg_charging();
+@@ -1759,6 +1766,15 @@ static void lvgl_task(void *param)
+      * 马达从 BAT+ 直接取电，满压约 50 mA；开机这一下不震。 */
+     motor_init();
+ 
++    /* ---- BLE（M2，探针并入）----
++     * ble_link 任务（优先级 configMAX_PRIORITIES-2，高于本任务）依次做
++     *   rfparam_init -> btble_controller_init -> hci_driver_init -> bt_enable
++     *   -> GATT 注册 -> 可连接广播。
++     * 若 RF 校准/协议栈初始化失败，任务打印错误后自删除，不影响显示。
++     * GATT 事件不碰 LVGL：见主循环里的 ble_ui_poll()。 */
++    printf("[ble] starting link task ...\r\n");
++    ble_link_start();
++
+     /* ---- 电池采样（IO20 / ADC_CH0，100k+100k 分压）----
+      * V1.4 就有实现（watchface/board_adc.c），这里移植进来。
+      * 之前表盘上的电量是写死的 87%，Codex 把那块删成了占位符 —— 现在补上真实值。
+@@ -1773,6 +1789,10 @@ static void lvgl_task(void *param)
+     for (;;) {
+         pc_monitor_service();
+ 
++        /* M2：BLE 队列消费点（唯一允许把 BLE 事件变成 UI 动作的地方）。
++         * ble_ui.c 里 W1 只是打日志，W3 再接通知弹层/震动/对时。 */
++        ble_ui_poll();
++
+         /* shell 的 panelsleep：必须在 LVGL 任务里执行（会和刷屏抢 DBI）。
+          * 该命令只用于上板量电流，默认息屏路径完全不变。 */
+         if (s_panelsleep_req >= 0) {

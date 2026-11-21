@@ -1,0 +1,9 @@
+{
+  "source": "source.png",
+  "position_x": 0.5,
+  "position_y": 0.5,
+  "top_fade": 28,
+  "edge_fade": 27,
+  "bottom_dim": 0.6,
+  "pixel_sha256": "22958cfd2bc678550f58a97d585256fdf77848aca69d6df46a2e033e0f05cc44"
+}

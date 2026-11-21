@@ -1,0 +1,41 @@
+CONFIG_BFLB_LOG             =n
+
+CONFIG_VSNPRINTF_FLOAT      =y
+CONFIG_VSNPRINTF_FLOAT_EX   =y
+CONFIG_VSNPRINTF_LONG_LONG  =y
+CONFIG_SCANF_FLOAT          =y
+CONFIG_SCANF_FLOAT_EX       =y
+
+CONFIG_FREERTOS             =y
+CONFIG_SHELL                =y
+
+# ---------------------------------------------------------------------------
+# BLE —— 已打开并实机可用（2026-11-15）
+#
+#   编入 ble_link.c / ble_svc.c / services/svc_ble.c；ble_ui.c 是历史桩、不编译。
+#   手表模式不广播，进电脑模式（-1 屏）才由 svc_pc_enter() 开广播/连接。
+#   OAD / tickless 不开。
+# ---------------------------------------------------------------------------
+CONFIG_BLUETOOTH            =y
+CONFIG_RF                   =y
+CONFIG_BTBLECONTROLLER_LIB  =ble1m0s1bredr0
+
+# USB CDC 虚拟串口控制台（printf / shell 都走 USB-C）
+CONFIG_CHERRYUSB                 =y
+CONFIG_CHERRYUSB_OSAL            =freertos
+CONFIG_CHERRYUSB_DEVICE          =y
+CONFIG_CHERRYUSB_DEVICE_CDC_ACM  =y
+CONFIG_BSP_USB                   =y
+CONFIG_BSP_CONSOLE_USB_CDC       =y
+
+# ---------------------------------------------------------------------------
+# LVGL v9.5
+#   显示端口自己写（main.c 里的 disp_flush → st7802_blit565），
+#   所以 CONFIG_LVGL9_PORT_DISP 必须为 n —— 否则 SDK 会把它那份
+#   依赖 BSP_LCD 的 lv_port_disp_mcu.c 也编进来，符号冲突。
+# ---------------------------------------------------------------------------
+CONFIG_LVGL9                =y
+CONFIG_LVGL9_PORT_DISP      =n
+CONFIG_LVGL9_PORT_INDEV     =n
+CONFIG_LVGL9_PORT_FS        =n
+CONFIG_LVGL9_OSD_LAYER      =n

@@ -1,0 +1,15 @@
+# dsh-protorig-panel 的 cordis 补丁层：把插件插进 DSH profile。
+#
+# config 会经过 package.json 里的 Config schema 校验并补齐默认值；
+# 用户可调的项（fps / 提醒三档 / 审批超时 / BLE 降级…）在 DSH 设置界面
+# 里改（schema 中标了 .volatile() 的字段），这里只放不需要 UI 的项。
+- insert:
+    - id: dsh-protorig-panel
+      name: dsh-protorig-panel
+      config:
+        # 空 = 自动发现 VID 349B / PID 6160 的手表串口；固定串口填 COM8
+        port: ''
+        # 插线后自动发 pcmode 1 进入电脑模式
+        autoEnter: true
+        # 2 fps 足够（v4 只有时间/会话/三环会变），省宿主 CPU
+        fps: 2

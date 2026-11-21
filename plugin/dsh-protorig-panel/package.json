@@ -1,0 +1,76 @@
+{
+  "name": "dsh-protorig-panel",
+  "version": "0.4.19",
+  "description": "PROTORIG ES 手表电脑模式插件：USB 像素副屏 + 脏块渲染 + 审批/问答 + 跨平台设备身份（admin_id）；烧录（Windows/macOS）",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "protorig",
+    "bouffalo",
+    "bl616",
+    "wearable",
+    "usb-cdc",
+    "serialport",
+    "ble",
+    "second-screen",
+    "windows",
+    "macos"
+  ],
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.1.0-rc.6 <0.3.0"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "scripts": {
+    "hello": "node tools/cli.mjs hello",
+    "bands": "node tools/cli.mjs bands",
+    "panel": "node tools/cli.mjs panel",
+    "touch": "node tools/cli.mjs touch",
+    "sync": "node tools/cli.mjs sync",
+    "test": "node --test",
+    "pack": "npm pack --dry-run",
+    "check:release": "node tools/check-release.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.19.0",
+    "@napi-rs/canvas": "^1.1.0",
+    "@resvg/resvg-js": "^2.6.2",
+    "@stoprocent/noble": "^2.8.0",
+    "serialport": "^13.0.0",
+    "systeminformation": "^5.33.19"
+  },
+  "files": [
+    "assets",
+    "design",
+    "src",
+    "tools",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "LICENSE-focus-mit.txt"
+  ]
+}

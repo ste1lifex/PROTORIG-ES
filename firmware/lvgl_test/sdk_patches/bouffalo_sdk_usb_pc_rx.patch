@@ -1,0 +1,46 @@
+--- a/bsp/common/usb_app/usb_console.c
++++ b/bsp/common/usb_app/usb_console.c
+@@ -44,6 +44,23 @@
+ #endif
+ 
+ #define USB_CONSOLE_RETRY_DELAY_MS 10U
++
++/* protorig-usbpc: raw CDC RX hook. The PROTORIG ES app strongly defines
++ * protorig_usb_pc_rx() to take binary pixel frames in PC mode
++ * (A5 5A len payload, see bsp/usb_pc_link.c); the weak default keeps
++ * stock shell behaviour for every other app.
++ * Return 1 = consumed, 0 = hand the bytes to the shell. */
++__attribute__((weak)) int protorig_usb_pc_rx(const uint8_t *buf, uint16_t len)
++{
++    (void)buf;
++    (void)len;
++    return 0;
++}
++
++/* protorig-usbpc: number of completed USB IN transfers. The app watches
++ * this counter to detect a dead PC app while the cable is still plugged
++ * in (closing the PC process stops the host from reading our IN data). */
++volatile uint32_t protorig_usb_console_in_events = 0;
+ 
+ static const uint8_t usb_console_device_descriptor[] = { USB_DEVICE_DESCRIPTOR_INIT(
+     USB_2_0, 0xEF, 0x02, 0x01, CONFIG_CONSOLE_USB_CDC_VID, CONFIG_CONSOLE_USB_CDC_PID, 0x0100, 0x01) };
+@@ -261,6 +278,7 @@
+     }
+ 
+     flags = bflb_irq_save();
++    protorig_usb_console_in_events++;
+     usb_console.tx_done_pending = true;
+     bflb_irq_restore(flags);
+     usb_console_notify_task();
+@@ -404,7 +422,10 @@
+                 break;
+             }
+             if ((rx_len != 0U) && (rx_len <= sizeof(usb_console_rx_buffer))) {
+-                shell_exe_cmd(usb_console_rx_buffer, (uint16_t)rx_len);
++                /* protorig-usbpc: 1 = binary frame consumed, 0 = shell */
++                if (!protorig_usb_pc_rx(usb_console_rx_buffer, (uint16_t)rx_len)) {
++                    shell_exe_cmd(usb_console_rx_buffer, (uint16_t)rx_len);
++                }
+             }
+             usb_console.rx_state = USB_CONSOLE_RX_STA_START_USBD_OUT;
+             goto polling_continue;

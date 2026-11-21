@@ -1,0 +1,26 @@
+# 本机工作文件
+/local/
+
+# 主机渲染/上板测试产物，不入库
+firmware/lvgl_test/tools/host_output_face/
+firmware/lvgl_test/tools/host_output/
+firmware/lvgl_test/tools/ui_host_output/
+firmware/lvgl_test/tools/face_host_output/
+firmware/lvgl_test/tmp/
+
+# macOS 系统垃圾文件
+.DS_Store
+**/.DS_Store
+# npm 凭据 / 本地 registry 配置（含 token，绝不入库）
+.npmrc
+**/.npmrc
+
+# 插件 CLI / 面板服务的运行期产物（旧版本会把任务状态写到仓库根）
+/inst.json
+
+# 本机开发路径（SDK/工具链/Python/字体），不入库；示例见 firmware/README.md
+/firmware/dev-env.json
+/firmware/dev-env.mk
+
+# 本机 DSH 开发 profile 及凭据
+/dsh-dev/

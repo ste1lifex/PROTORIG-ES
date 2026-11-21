@@ -1,0 +1,25 @@
+--- a/bsp/board/bl616dk/board.c
++++ b/bsp/board/bl616dk/board.c
+@@ -26,6 +26,11 @@
+ #include "board_flash_psram.h"
+ 
+ #include "mm.h"
++
++/* R4-usbdelay: app may strongly define protorig_usb_console_delay=1 to delay
++ * USB console init until after BLE/RF init. Weak default 0 keeps other apps
++ * (probe etc.) unchanged. */
++__attribute__((weak)) int protorig_usb_console_delay = 0;
+ 
+ extern void log_start(void);
+ 
+@@ -504,7 +509,9 @@
+     bflb_irq_restore(flag);
+ 
+ #ifdef CONFIG_BSP_CONSOLE_USB_CDC
+-    usb_console_init();
++    if (!protorig_usb_console_delay) {
++        usb_console_init();
++    }
+ #endif
+ 
+     printf("board init done\r\n");

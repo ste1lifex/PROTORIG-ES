@@ -1,0 +1,8 @@
+# 源码归档的排除项。
+local export-ignore
+local/** export-ignore
+schematic/*.epro2 export-ignore
+
+# 保持 shell 与 PowerShell 脚本的换行符兼容各自的运行环境。
+*.sh text eol=lf
+*.ps1 text eol=crlf
