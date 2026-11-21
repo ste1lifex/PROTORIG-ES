@@ -5,6 +5,7 @@ PROTORIG ES 是一块自制的圆屏智能手表，也可以作为 DeepSeek Harn
 外观主题是《明日方舟：终末地》的非官方二创。
 
 本仓库提供固件 **1.6.0**、DSH 插件 **0.4.19**、表壳与底座模型，以及原理图 PNG。
+插件已发布到公网 npm：[`dsh-protorig-panel`](https://www.npmjs.com/package/dsh-protorig-panel)（`npm i -g dsh-protorig-panel@0.4.19`）。
 版本说明见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 功能
@@ -32,7 +33,7 @@ PROTORIG ES 是一块自制的圆屏智能手表，也可以作为 DeepSeek Harn
 ## 快速开始
 
 - [固件构建与烧录](firmware/README.md)提供 Windows 和 macOS 的步骤。烧录完成后，手动将 SW2 拨到 OFF 再拨回 ON。
-- [DSH 插件](plugin/dsh-protorig-panel/README.md)从源码打包后安装到 DSH。文档包含连接、表盘和烧录操作。
+- [DSH 插件](plugin/dsh-protorig-panel/README.md)已发布到公网 npm，也可从源码打包后安装到 DSH。文档包含连接、表盘和烧录操作。
 - [表壳与底座](design/README.md)提供 STEP、STL、3MF 模型和装配参考。
 - [原理图](schematic/README.md)提供 V1.6 板卡的 PNG。
 - [开发指南](AGENTS.md)和[测试与验收](firmware/lvgl_test/docs/TESTING.md)介绍代码入口和验证步骤。
