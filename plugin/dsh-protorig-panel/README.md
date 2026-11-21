@@ -48,6 +48,16 @@ eFuse chip ID 算出。实现见固件 `services/svc_device_id.c`。
 
 ## 安装
 
+### 从 npm 安装（公网）
+
+插件已发布到公网 npm（当前 0.4.19）：
+
+```bash
+npm i -g dsh-protorig-panel@0.4.19
+# 或装进 DSH profile
+dsh plugin --profile <name> add dsh-protorig-panel@0.4.19 --allow-build=@serialport/bindings-cpp
+```
+
 ### macOS 上用 DSH 自带的 pnpm
 
 装有 DeepSeek Harness 桌面版时，可用 `tools/pnpm-dsh.sh` 调用应用内的 Node 和 pnpm。插件需要 Node.js 22 或更高版本。

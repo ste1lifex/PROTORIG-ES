@@ -4,6 +4,16 @@
   "description": "PROTORIG ES 手表电脑模式插件：USB 像素副屏 + 脏块渲染 + 审批/问答 + 跨平台设备身份（admin_id）；烧录（Windows/macOS）",
   "type": "module",
   "license": "MIT",
+  "author": "ste1lifex",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ste1lifex/PROTORIG-ES.git",
+    "directory": "plugin/dsh-protorig-panel"
+  },
+  "homepage": "https://github.com/ste1lifex/PROTORIG-ES/tree/main/plugin/dsh-protorig-panel#readme",
+  "bugs": {
+    "url": "https://github.com/ste1lifex/PROTORIG-ES/issues"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",
