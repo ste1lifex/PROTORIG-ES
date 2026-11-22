@@ -4,8 +4,8 @@ PROTORIG ES 是一块自制的圆屏智能手表，也可以作为 DeepSeek Harn
 它使用 480×480 AMOLED、BL616 主控，配有触摸屏、RTC、振动马达和 500 mAh 电池。
 外观主题是《明日方舟：终末地》的非官方二创。
 
-本仓库提供固件 **1.6.0**、DSH 插件 **0.4.19**、表壳与底座模型，以及原理图 PNG。
-插件已发布到公网 npm：[`dsh-protorig-panel`](https://www.npmjs.com/package/dsh-protorig-panel)（`npm i -g dsh-protorig-panel@0.4.19`）。
+本仓库提供固件 **1.6.0**、DSH 插件 **0.4.20**、表壳与底座模型，以及原理图 PNG。
+插件已发布到公网 npm：[`dsh-protorig-panel`](https://www.npmjs.com/package/dsh-protorig-panel)（`npm i -g dsh-protorig-panel@0.4.20`）。
 版本说明见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 功能

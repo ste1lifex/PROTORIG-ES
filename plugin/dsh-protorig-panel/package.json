@@ -1,6 +1,6 @@
 {
   "name": "dsh-protorig-panel",
-  "version": "0.4.19",
+  "version": "0.4.20",
   "description": "PROTORIG ES 手表电脑模式插件：USB 像素副屏 + 脏块渲染 + 审批/问答 + 跨平台设备身份（admin_id）；烧录（Windows/macOS）",
   "type": "module",
   "license": "MIT",

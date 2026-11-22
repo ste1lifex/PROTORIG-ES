@@ -23,7 +23,7 @@ npm pack --dry-run
 npm pack
 ```
 
-生成的 `dsh-protorig-panel-0.4.19.tgz` 可按[插件安装说明](plugin/dsh-protorig-panel/README.md#装进-dsh-profile--插件管理器)装入 DSH。插件版本以 [`package.json`](plugin/dsh-protorig-panel/package.json) 为准。
+生成的 `dsh-protorig-panel-0.4.20.tgz` 可按[插件安装说明](plugin/dsh-protorig-panel/README.md#装进-dsh-profile--插件管理器)装入 DSH。插件版本以 [`package.json`](plugin/dsh-protorig-panel/package.json) 为准。
 
 ## npm 公网发布
 
