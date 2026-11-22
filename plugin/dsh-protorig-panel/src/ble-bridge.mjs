@@ -250,6 +250,9 @@ export class BleBridge {
     const scanStale = this.scanning && Date.now() - this.scanStartedAt > 120000;
     /* connecting 期间绝不能再 startScanning：WinRT 会在 GATT 连接中途重置
      * watcher，表现为"有时连上、有时一直连不上"（2026-11-14 用户实测）。 */
+    /* 设置页关掉「蓝牙连接」：面板会显式 stop()，这里再兜一层 ——
+     * 重试定时器/旧 tick 残留都不该把扫描重新拉起来。 */
+    if (this.config?.ble?.enabled === false) return false;
     if (this.disabled || this.connected || this.connecting || this.timer || this.starting) return false;
     if (this.scanning && !scanStale) return false;
     if (scanStale) {
@@ -281,6 +284,7 @@ export class BleBridge {
 
   #onDiscover(peripheral) {
     if (this.probeOnly) return;   // probeOnce() 自己收集广播，不自动连
+    if (this.config?.ble?.enabled === false) return;   // 开关关掉：残留广播不再触发连接
     if (this.connected || this.connecting || this.stopping) return;
     const advertisement = peripheral?.advertisement ?? {};
     const localName = advertisement.localName ?? peripheral?.advertisement?.serviceLocalName ?? '';
@@ -468,7 +472,7 @@ export class BleBridge {
     this.timer = setTimeout(() => {
       this.timer = null;
       if (!this.stopping) {
-        if (this.noble?.state === 'poweredOn' && !this.connected) {
+        if (this.config?.ble?.enabled !== false && this.noble?.state === 'poweredOn' && !this.connected) {
           try {
             this.noble.startScanning([], true);
             this.scanning = true;

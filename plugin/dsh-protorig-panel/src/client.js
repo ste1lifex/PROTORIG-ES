@@ -149,7 +149,9 @@ window.__ModuleLoader__.load({
 
       /* 连接 */
       connection: '连接',
-      connectionHint: '关闭后不再主动连接；探测只登记编号，不改变当前连接。',
+      connectionHint: '关掉开关会立刻停掉该通道（连正在跑的扫描一起停）并禁止自动连接；「断开」只是临时暂停全部，点「重连」恢复。探测只登记编号，不改变当前连接。',
+      statusPaused: '已暂停（手动断开）',
+      statusBothOff: '两个通道都已关闭',
       usbSwitch: 'USB 连接',
       bleSwitch: '蓝牙连接',
       probeTitle: '设备探测',
@@ -350,7 +352,9 @@ window.__ModuleLoader__.load({
       balanceInterval: 'Refresh interval',
 
       connection: 'Connection',
-      connectionHint: 'When off, the plugin stops connecting. Probing only registers IDs.',
+      connectionHint: 'Turning a channel off stops it immediately (including a running scan) and blocks auto-connect. Disconnect only pauses everything until you press Reconnect. Probe just registers IDs.',
+      statusPaused: 'Paused (manually disconnected)',
+      statusBothOff: 'Both channels are off',
       usbSwitch: 'USB connection',
       bleSwitch: 'BLE connection',
       probeTitle: 'Device probe',
@@ -1536,12 +1540,18 @@ window.__ModuleLoader__.load({
     }
 
     /** 概览：状态 + 身份 + 电量 + 快捷操作（73 §8 / §8.2）。 */
-    function OverviewGroup({ t, host, onAction, busy, message, open, onToggle }) {
+    function OverviewGroup({ t, host, onAction, busy, message, open, onToggle, draft, change, onProbe, probeBusy, probeMessage }) {
       const runtime = host?.state ?? null;
       const connected = !!runtime?.connected;
       const ble = !!runtime?.ble;
       const device = runtime?.device ?? {};
-      const status = connected ? t('statusUsb') : ble ? t('statusBle') : t('statusOffline');
+      const bothOff = draft.usb.enabled === false && draft.ble.enabled === false;
+      const paused = runtime?.paused === true;
+      const status = connected ? t('statusUsb')
+        : ble ? t('statusBle')
+          : bothOff ? t('statusBothOff')
+            : paused ? t('statusPaused')
+              : t('statusOffline');
       const where = connected && runtime?.port ? ` · ${runtime.port}` : '';
       const fw = runtime?.firmwareVersion
         || (Number.isFinite(runtime?.protocolVersion) ? `v${runtime.protocolVersion}` : '—');
@@ -1564,13 +1574,33 @@ window.__ModuleLoader__.load({
         h('span', { style: styles.statusDot(connected || ble, false) }),
         h('span', { style: styles.statusText }, `${status}${where}`),
         message ? h('span', { style: { ...styles.message, color: C.secondary } }, message) : null),
+      /* 连接通道开关 + 探测（2026-11-22 从最底部「连接」分组搬上来）：
+       * 想关掉蓝牙扫描却要翻到最后，而且关掉当时并不会停掉已在跑的扫描 —— 状态只有放在
+       * 概览这里、和「断开/重连」排在一起才说得清。 */
+      h(Row, { label: t('usbSwitch') },
+        h(Toggle, {
+          checked: draft.usb.enabled, label: t('usbSwitch'),
+          onChange: (value) => change(['usb', 'enabled'], value),
+        })),
+      h(Row, { label: t('bleSwitch') },
+        h(Toggle, {
+          checked: draft.ble.enabled, label: t('bleSwitch'),
+          onChange: (value) => change(['ble', 'enabled'], value),
+        })),
+      h('p', { style: styles.note }, t('connectionHint')),
+      h(Row, { label: t('probeTitle') },
+        h(Button, { onClick: () => onProbe('usb'), disabled: probeBusy === 'usb' },
+          probeBusy === 'usb' ? t('scanning') : t('probeUsb')),
+        h(Button, { onClick: () => onProbe('ble'), disabled: probeBusy === 'ble' },
+          probeBusy === 'ble' ? t('scanning') : t('probeBle'))),
+      probeMessage ? h('p', { style: styles.note }, probeMessage) : null,
       h('p', { style: styles.metaLine }, meta),
       device.mismatch ? h('p', { style: styles.warn }, t('bindMismatch')) : null,
       h('div', { style: styles.actions },
         h(Button, { style: 'primary', onClick: () => onAction('reconnect'), disabled: busy }, t('actionReconnect')),
-        h(Button, { onClick: () => onAction('disconnect'), disabled: busy || !connected }, t('actionDisconnect')),
+        h(Button, { onClick: () => onAction('disconnect'), disabled: busy || paused }, t('actionDisconnect')),
         h(Button, { onClick: () => onAction('identify'), disabled: busy || !(connected || ble) }, t('actionIdentify'))),
-      !connected && !ble ? h('p', { style: styles.note }, t('needWatch')) : null);
+      !connected && !ble && !bothOff ? h('p', { style: styles.note }, t('needWatch')) : null);
     }
 
     /** 设备：候选列表 + 绑定/解绑 + 当前连接（P10）。 */
@@ -1678,7 +1708,6 @@ window.__ModuleLoader__.load({
         display: true,
         faces: true,
         interaction: false,
-        connection: false,
         devices: false,
         advanced: false,
       }));
@@ -1859,6 +1888,7 @@ window.__ModuleLoader__.load({
           t, host, busy: actionBusy, message: actionMessage,
           open: openGroups.overview, onToggle: () => toggle('overview'),
           onAction: runAction,
+          draft, change, onProbe: probeDevices, probeBusy, probeMessage,
         }),
 
         /* 2 显示（USB/蓝牙同一组控件，用分段切换） */
@@ -1972,35 +2002,14 @@ window.__ModuleLoader__.load({
         },
         h(FacesGroup, { t, host, connected })),
 
-        /* 5 连接开关 + 探测注册 */
-        h(Group, {
-          title: t('connection'), hint: t('connectionHint'),
-          open: openGroups.connection, onToggle: () => toggle('connection'),
-        },
-        h(Row, { label: t('usbSwitch') },
-          h(Toggle, {
-            checked: draft.usb.enabled, label: t('usbSwitch'),
-            onChange: (value) => change(['usb', 'enabled'], value),
-          })),
-        h(Row, { label: t('bleSwitch') },
-          h(Toggle, {
-            checked: draft.ble.enabled, label: t('bleSwitch'),
-            onChange: (value) => change(['ble', 'enabled'], value),
-          })),
-        h(Divider),
-        h(Row, { label: t('probeTitle') },
-          h(Button, { onClick: () => probeDevices('usb'), disabled: probeBusy === 'usb' }, probeBusy === 'usb' ? t('scanning') : t('probeUsb')),
-          h(Button, { onClick: () => probeDevices('ble'), disabled: probeBusy === 'ble' }, probeBusy === 'ble' ? t('scanning') : t('probeBle'))),
-        probeMessage ? h('p', { style: styles.note }, probeMessage) : null),
-
-        /* 6 设备 */
+        /* 5 设备 */
         h(DeviceGroup, {
           t, host, open: devicesOpen,
           onToggle: () => setOpenGroups((current) => ({ ...current, devicesTouched: true, devices: !devicesOpen })),
           onBind: bindDevice, bindBusy, deviceMessage, onRefresh: scanDevices, scanning,
         }),
 
-        /* 7 高级（默认折叠；烧录仅 Windows/macOS 渲染） */
+        /* 6 高级（默认折叠；烧录仅 Windows/macOS 渲染） */
         h(Group, {
           title: t('advanced'), hint: t('advancedHint'),
           open: openGroups.advanced, onToggle: () => toggle('advanced'),

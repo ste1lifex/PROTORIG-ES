@@ -211,6 +211,7 @@ export class PanelService {
     this.appliedDeviceId = this.config.deviceId;
     /** 已生效的 USB 连接开关（关掉时自动断开串口）。 */
     this.appliedUsbEnabled = this.config.usb.enabled !== false;
+    this.appliedBleEnabled = this.config.ble.enabled !== false;
     /** 最近一次枚举到的候选口（/state 与设置页「设备」分组直接读它，不重复枚举）。 */
     this.candidates = [];
     this.candidatesAt = 0;
@@ -2008,6 +2009,23 @@ export class PanelService {
       }
     }
 
+    /* 设置页改了蓝牙连接开关：关掉必须**立刻 stop()**，不能只是"下一次不再 start"。
+     * 残留的 startScanning 会继续收广播，`#onDiscover` 命中后还会自己连上（2026-11-22 实测），
+     * 用户看着开关是关的，射频却一直在扫。 */
+    const bleEnabled = this.config.ble.enabled !== false;
+    if (bleEnabled !== this.appliedBleEnabled) {
+      this.appliedBleEnabled = bleEnabled;
+      this.logger.info(`蓝牙连接开关：${bleEnabled ? '开' : '关'}`);
+      if (!bleEnabled) {
+        // 先把新配置交给 bridge，再停：避免这 500 ms 内残留广播按旧配置连上
+        this.ble.config = this.config;
+        await this.ble.stop().catch(() => {});
+      } else if (this.manualPaused) {
+        // 用户重新打开通道 = 想连：清掉「断开」的暂停，让 tick 重新起桥
+        this.manualPaused = false;
+      }
+    }
+
     // 设置页改了设备绑定（P6/P7）：按新绑定重新挑口；连着的正是绑定表就不折腾
     const bound = normalizeAdminId(this.config.deviceId);
     if (bound !== this.appliedDeviceId) {
@@ -2036,14 +2054,15 @@ export class PanelService {
     if (!this.link.state.connected) {
       if (this.manualPaused) {
         // 用户点了「断开」：不探测、不起 BLE，等「重连」或改设置
-        if (this.ble.connected || this.ble.child || this.ble.starting) this.ble.stop();
+        // scanning 也算在内：否则"暂停"只是不再新起扫描，已经在跑的照旧收广播。
+        if (this.ble.connected || this.ble.starting || this.ble.scanning) this.ble.stop();
         return;
       }
       // 断开期间：USB 开关开才探测；BLE 开关开才起桥（失败由 tick 重试）
       if (usbEnabled) this.#scheduleOpen();
       this.ble.config = this.config;
       if (!this.config.ble.enabled) {
-        if (this.ble.connected || this.ble.child || this.ble.starting) this.ble.stop();
+        if (this.ble.connected || this.ble.starting || this.ble.scanning) this.ble.stop();
       } else if (now - this.startedAt > 1500 && now - (this.lastConnectedAt ?? 0) > 2500) {
         this.ble.start().catch((error) => this.logger.debug?.(`BLE 降级：${error.message}`));
       }

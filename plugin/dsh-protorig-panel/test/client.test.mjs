@@ -202,12 +202,29 @@ async function mountClient({ state = hostState(), platform = 'win32' } = {}) {
   return { render, cleanup, platform };
 }
 
-test('设置页：七个分组齐全，概览显示连接状态与设备编号（2026-11 信息架构）', async () => {
+test('设置页：连接开关并进概览，分组收敛为六个（2026-11-22 信息架构）', async () => {
   const app = await mountClient();
   try {
     const first = app.render(); // 首帧：还没有 Host 状态（离线渲染）
-    for (const key of ['overview', 'display', 'interaction', 'faces', 'connection', 'devices', 'advanced']) {
+    for (const key of ['overview', 'display', 'interaction', 'faces', 'devices', 'advanced']) {
       assert.ok(first.elements.some((el) => el.props?.title === key), `应有「${key}」分组`);
+    }
+    assert.ok(!first.elements.some((el) => el.props?.title === 'connection'),
+      '连接开关已上移进概览，不该再单独成组');
+
+    /* 两个通道开关渲染在「概览」与「设备」之间 —— 即真的落在概览分组里 */
+    const overviewAt = first.elements.findIndex((el) => el.props?.title === 'overview');
+    const devicesAt = first.elements.findIndex((el) => el.props?.title === 'devices');
+    const channelSwitches = first.elements
+      .map((el, index) => ({ el, index }))
+      .filter(({ el }) => el?.props?.role === 'switch' && ['usbSwitch', 'bleSwitch'].includes(el.props['aria-label']));
+    assert.deepEqual(channelSwitches.map(({ el }) => el.props['aria-label']).sort(), ['bleSwitch', 'usbSwitch']);
+    for (const { index } of channelSwitches) {
+      assert.ok(index > overviewAt && index < devicesAt, '通道开关应渲染在概览分组内');
+    }
+    for (const key of ['probeUsb', 'probeBle']) {
+      assert.ok(first.elements.some((el) => el?.props?.children === key && typeof el.props.onClick === 'function'),
+        `概览里应有探测按钮「${key}」`);
     }
     assert.match(first.html, /statusOffline/);
     assert.match(first.html, /needWatch/);
