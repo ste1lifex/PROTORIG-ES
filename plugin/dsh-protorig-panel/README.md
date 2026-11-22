@@ -1,6 +1,6 @@
 # dsh-protorig-panel
 
-dsh-protorig-panel 将 PROTORIG ES 用作 480×480 副屏和遥控器。USB 由电脑渲染画面并接收手表触摸，BLE 由手表显示电脑指标和交互卡片。本仓库中的插件版本为 **0.4.20**。
+dsh-protorig-panel 将 PROTORIG ES 用作 480×480 副屏和遥控器。USB 由电脑渲染画面并接收手表触摸，BLE 由手表显示电脑指标和交互卡片。本仓库中的插件版本为 **0.4.21**。
 
 设置页支持设备绑定、显示参数、审批与问答、图片表盘安装、默认表盘下半区换图，以及 Windows/macOS 烧录。
 
@@ -50,12 +50,12 @@ eFuse chip ID 算出。实现见固件 `services/svc_device_id.c`。
 
 ### 从 npm 安装（公网）
 
-插件已发布到公网 npm（当前 0.4.20）：
+插件已发布到公网 npm（当前 0.4.21）：
 
 ```bash
-npm i -g dsh-protorig-panel@0.4.20
+npm i -g dsh-protorig-panel@0.4.21
 # 或装进 DSH profile
-dsh plugin --profile <name> add dsh-protorig-panel@0.4.20 --allow-build=@serialport/bindings-cpp
+dsh plugin --profile <name> add dsh-protorig-panel@0.4.21 --allow-build=@serialport/bindings-cpp
 ```
 
 ### macOS 上用 DSH 自带的 pnpm
@@ -66,7 +66,7 @@ dsh plugin --profile <name> add dsh-protorig-panel@0.4.20 --allow-build=@serialp
 cd plugin/dsh-protorig-panel
 ./tools/pnpm-dsh.sh install --frozen-lockfile   # 首次 / 锁文件变更后
 ./tools/pnpm-dsh.sh test                        # 运行插件测试
-./tools/pnpm-dsh.sh pack                        # → dsh-protorig-panel-0.4.20.tgz
+./tools/pnpm-dsh.sh pack                        # → dsh-protorig-panel-0.4.21.tgz
 ```
 
 - 构建脚本白名单在 `pnpm-workspace.yaml` 的 `allowBuilds`（pnpm 11 起不再读
@@ -83,7 +83,7 @@ cd plugin/dsh-protorig-panel
 cd plugin/dsh-protorig-panel
 npm ci                            # 或 npm install
 npm test
-npm pack                          # → dsh-protorig-panel-0.4.20.tgz
+npm pack                          # → dsh-protorig-panel-0.4.21.tgz
 ```
 
 ### 装进 DSH profile / 插件管理器
@@ -97,7 +97,7 @@ npm pack                          # → dsh-protorig-panel-0.4.20.tgz
 > 非交互安装（CLI）时可以直接放行，等价于批准：
 >
 > ```bash
-> dsh plugin --profile <name> add ./dsh-protorig-panel-0.4.20.tgz \
+> dsh plugin --profile <name> add ./dsh-protorig-panel-0.4.21.tgz \
 >   --allow-build=@serialport/bindings-cpp
 > ```
 
@@ -112,7 +112,7 @@ npm_config_store_dir="<dsh-portable-dir>/store" \
 # 装完重启 DSH 宿主（插件在宿主进程内加载）
 ```
 
-也可以用 DSH 的插件管理器装 tarball 路径（`plugin add ./dsh-protorig-panel-0.4.20.tgz`）。
+也可以用 DSH 的插件管理器装 tarball 路径（`plugin add ./dsh-protorig-panel-0.4.21.tgz`）。
 插件靠 `package.json` 的 `dsh.bundle.patch → cordis.patch.yml` 被加载；
 `plugin add` 会把 bundle 追加到 profile 的 `dsh.profile.bundles`。
 

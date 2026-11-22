@@ -126,6 +126,10 @@ export class BleBridge {
     this.starting = false;
     this.stopping = false;
     this.runtimeOk = null;
+    /** 最近一次运行时不可用的原因（探测结果/设置页展示用）。 */
+    this.runtimeReason = '';
+    /** 等蓝牙就绪的时长；单测注入小值，避免真机 8 s 超时拖慢测试。 */
+    this.poweredOnTimeoutMs = 8000;
     this.stopPromise = null;
     this.lastAddress = null;
     this.zones = null;
@@ -161,6 +165,12 @@ export class BleBridge {
     const noble = this.noble;
     noble.on('stateChange', (state) => {
       if (this.config?.debug) this.logger.debug?.(`BLE 状态：${state}`);
+      /* 适配器恢复可用（蓝牙重新打开 / 权限刚授予）：清掉此前的"永久禁用"。
+       * 否则一次启动期超时就把通道钉死，只能重载插件（2026-11-22 真机踩过）。 */
+      if (state === 'poweredOn' && this.disabled) {
+        this.resetRuntime();
+        this.logger.info('蓝牙已恢复可用，清除此前的禁用状态');
+      }
       if (state === 'poweredOff' && this.connected) this.#onDisconnected('poweredOff');
     });
     noble.on('discover', (peripheral) => this.#onDiscover(peripheral));
@@ -196,8 +206,14 @@ export class BleBridge {
   }
 
   /**
-   * 检查运行环境：noble 能加载 + 蓝牙可用。不可用则禁用降级（只警告一次）。
-   * 结果缓存，避免每次重连都重新探测。
+   * 检查运行环境：noble 能加载 + 蓝牙可用。
+   *
+   * 失败分两类（2026-11-22 修，真机踩过）：
+   *   · 永久：加载失败 / unsupported / unauthorized → 落 `disabled` 并缓存，不再反复探测；
+   *   · 暂时：#waitPoweredOn 超时（系统刚唤醒、权限弹窗没点、蓝牙刚打开）→ 只当次返回 false，
+   *     **不缓存、不 disabled**，下次 start()/探测重新探测；适配器变 poweredOn 时还会主动清账。
+   * 以前两类都当永久，一次 8 s 超时就永久禁掉 BLE，只能重载插件才恢复：
+   * 表现为"手表连不上"，而同一份代码单独跑 noble 立刻能连。
    */
   checkRuntime() {
     if (this.runtimeOk !== null) return Promise.resolve(this.runtimeOk);
@@ -206,38 +222,59 @@ export class BleBridge {
       try {
         noble = await this.#loadNoble();
       } catch (error) {
-        this.runtimeOk = false;
-        this.disabled = true;
-        this.logger.warn(
+        return this.#failRuntime(
+          'load',
           `BLE 降级未启用：无法加载 @stoprocent/noble（${error.message}）。` +
             ' 该包带预编译，一般 npm install 后即可用；USB 像素面板不受影响。',
         );
-        return false;
       }
       const state = String(noble.state ?? 'unknown');
       if (state === 'unsupported') {
-        this.runtimeOk = false;
-        this.disabled = true;
-        this.logger.warn('BLE 降级未启用：系统/硬件不支持蓝牙低功耗（noble state=unsupported）。USB 不受影响。');
-        return false;
-      }
-      const powered = await this.#waitPoweredOn();
-      if (!powered) {
-        this.runtimeOk = false;
-        this.disabled = true;
-        const finalState = String(this.noble?.state ?? state);
-        this.logger.warn(
-          `BLE 降级未启用：蓝牙不可用（state=${finalState}）。` +
-            (finalState === 'unauthorized'
-              ? ' macOS 请在 系统设置 → 隐私与安全性 → 蓝牙 给 DSH 授权后重启宿主。'
-              : ' 请确认蓝牙已打开。') +
-            ' USB 像素面板不受影响。',
+        return this.#failRuntime(
+          'unsupported',
+          'BLE 降级未启用：系统/硬件不支持蓝牙低功耗（noble state=unsupported）。USB 不受影响。',
         );
+      }
+      if (!(await this.#waitPoweredOn(this.poweredOnTimeoutMs))) {
+        const finalState = String(this.noble?.state ?? state);
+        if (finalState === 'unsupported' || finalState === 'unauthorized') {
+          return this.#failRuntime(
+            finalState,
+            `BLE 降级未启用：蓝牙不可用（state=${finalState}）。` +
+              (finalState === 'unauthorized'
+                ? ' macOS 请在 系统设置 → 隐私与安全性 → 蓝牙 给 DSH 授权后重启宿主。'
+                : '') +
+              ' USB 像素面板不受影响。',
+          );
+        }
+        /* 只是"还没就绪"：不缓存、不禁用，下次再探。 */
+        this.runtimeReason = `蓝牙尚未就绪（state=${finalState}）`;
+        this.logger.warn(`BLE 暂不可用：${this.runtimeReason}，稍后自动重试（不再永久禁用）。`);
         return false;
       }
       this.runtimeOk = true;
+      this.runtimeReason = '';
       return true;
     })();
+  }
+
+  /** 记录一次永久失败并禁用降级通道；`reason` 供设置页/探测结果展示。 */
+  #failRuntime(reason, message) {
+    this.runtimeOk = false;
+    this.disabled = true;
+    this.runtimeReason = reason;
+    this.logger.warn(message);
+    return false;
+  }
+
+  /**
+   * 清掉运行时探测缓存（显式动作专用）：探测按钮、重连/resume、开关由关→开、
+   * 适配器 stateChange→poweredOn。让被永久禁用的通道有一次重新探测的机会。
+   */
+  resetRuntime() {
+    this.runtimeOk = null;
+    this.disabled = false;
+    this.runtimeReason = '';
   }
 
   /**
@@ -564,12 +601,20 @@ export class BleBridge {
 
   /**
    * 只扫描 + 收集广播名（「蓝牙探测注册」按钮）：不连接、不改当前连接。
-   * @returns {Promise<Array<{id:string,name:string,address:string}>>}
+   * @returns {Promise<{found:Array<{id:string,name:string,address:string}>, reason:string}>}
+   *   `reason` 非空表示没扫成（通道被禁用/蓝牙没开/正在用），界面必须显示，
+   *   否则空数组会被当成"手表没广播"而误判硬件（2026-11-22 用户踩过）。
    */
   async probeOnce(ms = 5000, onSeen = null) {
-    if (this.disabled || this.connected || this.connecting || this.probeOnly) return [];
-    if (!(await this.checkRuntime())) return [];
-    if (this.noble?.state !== 'poweredOn') return [];
+    if (this.connected || this.connecting || this.probeOnly) {
+      return { found: [], reason: '蓝牙通道正在使用中' };
+    }
+    if (!(await this.checkRuntime())) {
+      return { found: [], reason: this.runtimeReason || '蓝牙不可用' };
+    }
+    if (this.noble?.state !== 'poweredOn') {
+      return { found: [], reason: `蓝牙未就绪（state=${this.noble?.state ?? 'unknown'}）` };
+    }
     const seen = new Map();
     const handler = (peripheral) => {
       const advertisement = peripheral?.advertisement ?? {};
@@ -589,7 +634,7 @@ export class BleBridge {
     try { this.noble.stopScanning(); } catch { /* ignore */ }
     this.noble.removeListener?.('discover', handler);
     this.probeOnly = false;
-    return [...seen.values()];
+    return { found: [...seen.values()], reason: '' };
   }
 
   /** 停止数字通道：停止扫描、断开 GATT。可重复调用。 */

@@ -981,12 +981,27 @@ export class PanelService {
     return this.scanning;
   }
 
-  /** 「蓝牙探测注册」：只扫一轮广播、登记编号（不连接、不改当前连接）。 */
+  /**
+   * 「蓝牙探测注册」：只扫一轮广播、登记编号（不连接、不改当前连接）。
+   *
+   * 显式探测 = 用户想确认蓝牙通不通：先 `resetRuntime()` 清掉"永久禁用"缓存再探一次。
+   * 扫不成时返回 ok:false + reason，界面必须显示；以前 disabled 直接返回空数组、
+   * 界面还写"探测完成"，被误判成硬件坏（2026-11-22）。
+   */
   async probeBleDevices(ms = 5000) {
-    const found = await this.ble.probeOnce?.(ms, ({ admin }) => this.#registerSeen(admin, 'ble'))
-      .catch?.(() => []) ?? [];
+    this.ble.resetRuntime?.();
+    const result = await this.ble.probeOnce?.(ms, ({ admin }) => this.#registerSeen(admin, 'ble'))
+      .catch?.((error) => ({ found: [], reason: error.message })) ?? { found: [], reason: '蓝牙通道不可用' };
+    const found = Array.isArray(result) ? result : (result.found ?? []);
+    const reason = Array.isArray(result) ? '' : String(result.reason ?? '');
     if (found.length) this.logger.info(`蓝牙探测注册：${found.map((item) => item.id).join(' / ')}`);
-    return { devices: this.#knownDevicesView(), found };
+    return {
+      ok: !reason,
+      found,
+      reason,
+      error: reason ? `蓝牙不可用：${reason}` : '',
+      devices: this.#knownDevicesView(),
+    };
   }
 
   /** 供 HTTP 路由 / agent 工具读取的面板状态（只读，无副作用）。 */
@@ -1003,6 +1018,12 @@ export class PanelService {
       page: this.status.page,
       fps: this.config.fps,
       ble: this.ble.connected,
+      /** BLE 通道是否活着：已连接或正在扫描/启动都算（resume/.status 判据，2026-11-22）。 */
+      bleActive: Boolean(this.ble.connected || this.ble.starting || this.ble.scanning || this.ble.timer),
+      /** BLE 通道是否被永久停用（加载失败/unsupported/unauthorized）；设置页与 protorig_state 靠它显示。 */
+      bleDisabled: this.ble.disabled === true,
+      /** 停用原因码；空 = 没被停用。 */
+      bleReason: String(this.ble.runtimeReason ?? ''),
       flashHold: this.flashHold,
       paused: this.manualPaused,
       /** 会话投影只读摘要（不含标题/提示词）：确认手表当前显示的任务状态。 */
@@ -1154,7 +1175,20 @@ export class PanelService {
     this.openTimer = null;
     await this.link.close().catch(() => {});
     const opened = await this.#tryOpen();
-    return { opened, state: this.#deviceView() };
+    /* USB 打不开 ≠ 连不上表：没插线时 BLE 才是可用通道。这里清掉"永久禁用"缓存并
+     * 顺手把桥拉起来，否则 resume/重连 会误报"没找到手表"（2026-11-22 用户反馈）。 */
+    this.ble.resetRuntime?.();
+    if (!opened && this.config.ble.enabled !== false) {
+      this.ble.config = this.config;
+      void this.ble.start().catch(() => {});
+    }
+    const bleActive = Boolean(this.ble.connected || this.ble.starting || this.ble.scanning || this.ble.timer);
+    return {
+      opened,
+      ble: bleActive,
+      bleReason: bleActive ? '' : String(this.ble.runtimeReason ?? ''),
+      state: this.#deviceView(),
+    };
   }
 
   /** 「断开」：关串口/停 BLE 并暂停自动重连（直到重连/改设置）。 */
@@ -2020,8 +2054,9 @@ export class PanelService {
         // 先把新配置交给 bridge，再停：避免这 500 ms 内残留广播按旧配置连上
         this.ble.config = this.config;
         await this.ble.stop().catch(() => {});
-      } else if (this.manualPaused) {
-        // 用户重新打开通道 = 想连：清掉「断开」的暂停，让 tick 重新起桥
+      } else {
+        // 用户重新打开通道 = 想连：清掉「断开」暂停 + "永久禁用"缓存，让 tick 重新探测
+        this.ble.resetRuntime?.();
         this.manualPaused = false;
       }
     }

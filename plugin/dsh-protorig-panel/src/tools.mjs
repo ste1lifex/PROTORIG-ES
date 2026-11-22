@@ -310,7 +310,7 @@ function faceTool({ panel }) {
   };
 }
 
-function stateTool({ panel }) {
+export function stateTool({ panel }) {
   const output = {
     type: 'object',
     additionalProperties: false,
@@ -325,10 +325,12 @@ function stateTool({ panel }) {
       page: { type: 'number' },
       fps: { type: 'number' },
       ble: { type: 'boolean' },
+      bleDisabled: { type: 'boolean' },
+      bleReason: { type: 'string' },
       flashHold: { type: 'boolean' },
       deviceId: { type: 'string' },
     },
-    required: ['ok', 'connected', 'port', 'pcMode', 'passthrough', 'battery', 'bright', 'page', 'fps', 'ble', 'flashHold', 'deviceId'],
+    required: ['ok', 'connected', 'port', 'pcMode', 'passthrough', 'battery', 'bright', 'page', 'fps', 'ble', 'bleDisabled', 'bleReason', 'flashHold', 'deviceId'],
   };
   return {
     name: 'protorig_state',
@@ -344,7 +346,9 @@ function stateTool({ panel }) {
           + `${value.port ? ` ${value.port}` : ''} · pc=${value.pcMode ? 1 : 0} · passthrough=${value.passthrough ? 1 : 0}`
           + ` · battery=${battery} · bright=${bright} · fps=${value.fps}`
           + `${value.deviceId ? ` · device=${value.deviceId}` : ''}`
-          + `${value.ble ? ' · BLE' : ''}${value.flashHold ? ' · flashHold' : ''}`,
+          + `${value.ble ? ' · BLE' : ''}`
+          + `${value.bleDisabled ? ` · BLE已停用(${value.bleReason || '未知原因'})` : ''}`
+          + `${value.flashHold ? ' · flashHold' : ''}`,
         );
       },
     },
@@ -361,6 +365,8 @@ function stateTool({ panel }) {
         page: Number.isFinite(state.page) ? state.page : -1,
         fps: Number.isFinite(state.fps) ? state.fps : 0,
         ble: !!state.ble,
+        bleDisabled: state.bleDisabled === true,
+        bleReason: String(state.bleReason ?? ''),
         flashHold: !!state.flashHold,
         deviceId: String(state.device?.id ?? ''),
       };
@@ -675,6 +681,7 @@ export function connTool({ panel }) {
       paused: Boolean(st.paused),
       connected: Boolean(st.connected),
       ble: Boolean(st.ble),
+      bleActive: Boolean(st.bleActive ?? st.ble),
       port: String(st.port ?? ''),
       device: String(st.device?.id ?? ''),
       seconds: 0,
@@ -705,9 +712,12 @@ export function connTool({ panel }) {
           return asText(`protorig_conn pause · 已让出串口/BLE · ${value.seconds}s 后自动恢复`);
         }
         if (value.action === 'resume') {
+          const via = value.connected && value.port ? `USB ${value.port}`
+            : value.ble ? 'BLE 通道已恢复（已连接或正在扫描）'
+              : '未连接';
           return asText(value.ok
-            ? `protorig_conn resume OK · connected=${value.connected}${value.port ? ` · ${value.port}` : ''}`
-            : `protorig_conn resume FAILED · ${value.error }`);
+            ? `protorig_conn resume OK · ${via}`
+            : `protorig_conn resume FAILED · ${value.error}`);
         }
         return asText(
           `protorig_conn status · paused=${value.paused} connected=${value.connected}`
@@ -731,12 +741,18 @@ export function connTool({ panel }) {
       if (action === 'resume') {
         const result = await panel.reconnectNow().catch((error) => ({ opened: false, error: error.message }));
         const view = snapshot(action);
-        return {
-          ...view,
-          ok: result?.opened === true,
-          paused: false,
-          error: result?.opened === true ? '' : String(result?.error ?? '没找到手表：插好线 / 进电脑模式后重试'),
-        };
+        /* 成功判据是"有通道可用"，不是"USB 打开了"：没插线时 BLE 才是路径
+         * （2026-11-22 用户反馈 resume 在 BLE 能连时仍报 FAILED）。 */
+        const bleReady = result?.ble === true || view.bleActive;
+        const ok = result?.opened === true || bleReady;
+        let error = '';
+        if (!ok) {
+          error = String(result?.error
+            ?? (result?.bleReason
+              ? `没找到手表：USB 未连接，蓝牙也不可用（${result.bleReason}）`
+              : '没找到手表：插好线 / 进电脑模式后重试'));
+        }
+        return { ...view, ok, paused: false, ble: view.ble || bleReady, error };
       }
       return snapshot(action);
     },

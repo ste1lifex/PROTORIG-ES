@@ -159,6 +159,9 @@ window.__ModuleLoader__.load({
       probeBle: '探测蓝牙',
       probeUsbDone: 'USB 探测完成，已登记',
       probeBleDone: '蓝牙探测完成，已登记',
+      probeBleEmpty: '蓝牙探测完成 · 未发现手表广播（蓝牙通道正常）',
+      bleDisabledWarn: '蓝牙通道已停用（自动恢复失败）',
+      bleDisabledHint: '点下方「探测蓝牙」可重试；仍失败请查看宿主日志',
 
       /* 提醒与审批 */
       interaction: '提醒与审批',
@@ -362,6 +365,9 @@ window.__ModuleLoader__.load({
       probeBle: 'Probe BLE',
       probeUsbDone: 'USB probe done, registered',
       probeBleDone: 'BLE probe done, registered',
+      probeBleEmpty: 'BLE probe finished · no watch advertisement found (BLE is working)',
+      bleDisabledWarn: 'BLE channel is disabled (auto-recovery failed)',
+      bleDisabledHint: 'Press Probe BLE below to retry; check host logs if it keeps failing',
 
       interaction: 'Reminders & approvals',
       interactionHint: 'Done / needs-you / failed events; approvals and questions hand off to the computer on timeout.',
@@ -1574,6 +1580,12 @@ window.__ModuleLoader__.load({
         h('span', { style: styles.statusDot(connected || ble, false) }),
         h('span', { style: styles.statusText }, `${status}${where}`),
         message ? h('span', { style: { ...styles.message, color: C.secondary } }, message) : null),
+      /* 蓝牙通道被永久停用时必须看得见：否则用户只会觉得"手表连不上"，看不出是插件把通道关了
+       * （2026-11-22 事故：只能靠重载插件恢复，界面毫无提示）。 */
+      runtime?.bleDisabled
+        ? h('p', { style: styles.warn },
+          `${t('bleDisabledWarn')}${runtime.bleReason ? `：${runtime.bleReason}` : ''} · ${t('bleDisabledHint')}`)
+        : null,
       /* 连接通道开关 + 探测（2026-11-22 从最底部「连接」分组搬上来）：
        * 想关掉蓝牙扫描却要翻到最后，而且关掉当时并不会停掉已在跑的扫描 —— 状态只有放在
        * 概览这里、和「断开/重连」排在一起才说得清。 */
@@ -1811,7 +1823,13 @@ window.__ModuleLoader__.load({
             ? '/api/dsh-protorig-panel/devices/probe/usb'
             : '/api/dsh-protorig-panel/devices/probe/ble', {});
           if (!body?.ok) throw new Error(body?.error || t('failed'));
-          setProbeMessage(kind === 'usb' ? t('probeUsbDone') : t('probeBleDone'));
+          if (kind === 'usb') {
+            setProbeMessage(t('probeUsbDone'));
+          } else {
+            /* 蓝牙探测要区分「扫到几台」和「没扫到但通道正常」，否则空结果看起来像失败。 */
+            const count = Array.isArray(body?.found) ? body.found.length : 0;
+            setProbeMessage(count ? `${t('probeBleDone')} · ${count}` : t('probeBleEmpty'));
+          }
           await refreshHost();
         } catch (error) {
           setProbeMessage(`${t('failed')}: ${String(error.message || error)}`);

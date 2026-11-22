@@ -89,6 +89,20 @@ test('protorig_conn：pause 让出串口、resume 收回（并带 TTL）', async
   assert.deepEqual(calls, [['pause', 30], ['resume']]);
 });
 
+test('protorig_conn：没插 USB 但 BLE 通道可用时 resume 应成功', async () => {
+  const tool = connTool({
+    panel: {
+      stateForApi: () => ({ paused: true, connected: false, ble: false, bleActive: false, port: '' }),
+      pauseForScript: async () => ({ seconds: 120 }),
+      reconnectNow: async () => ({ opened: false, ble: true, bleReason: '' }),
+    },
+  });
+  const out = await tool.execute({ action: 'resume' });
+  assert.equal(out.ok, true, 'BLE 可用就不该报 FAILED');
+  const rendered = tool.output.render({ action: 'resume' }, out).map((block) => block.text).join('');
+  assert.match(rendered, /BLE 通道已恢复/);
+});
+
 test('protorig_conn：手表不在线时 resume 要如实报错，不能假装成功', async () => {
   const tool = connTool({
     panel: {

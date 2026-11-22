@@ -243,6 +243,21 @@ test('设置页：连接开关并进概览，分组收敛为六个（2026-11-22 
   }
 });
 
+test('设置页：蓝牙通道被停用时概览要显示原因（不能装看不见）', async () => {
+  const state = hostState();
+  Object.assign(state.state, { connected: false, port: '', ble: false, bleDisabled: true, bleReason: 'unauthorized' });
+  const app = await mountClient({ state });
+  try {
+    app.render();
+    await settle(30);
+    const html = app.render().html;
+    assert.match(html, /bleDisabledWarn/);
+    assert.match(html, /unauthorized/);
+  } finally {
+    app.cleanup();
+  }
+});
+
 test('设置页：布尔项统一是拨动开关（role=switch），不再有 checkbox', async () => {
   const app = await mountClient();
   try {
