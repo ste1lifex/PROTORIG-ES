@@ -131,7 +131,16 @@ uint32_t tp_get_accept_status(void);
 #define TP_REG_GESTURE     0xD04C /* bit7=使能/状态, bit6:0=手势码 */
 #define TP_REG_PROXIMITY   0xD04B /* 接近感应：bit7 使能, &0x7F: 0=远 1=近 */
 
-/** 模式命令：往 0xD101 写 {0xD1, cmd}。0 = 成功 */
+/**
+ * 模式命令：**裸写 2 字节** {0xD1, cmd}（不加寄存器地址），写完读 0x0002 自检。
+ *
+ * ⚠️ 2026-11-27 真机实测：按"寄存器写"发给 0xD101（负载 {0xD1, cmd}）这颗芯片
+ *   不认——它把寄存器地址低字节 0x01 当成命令码，回显永远停在 01（debug_info，
+ *   此时**完全不报点**）。必须裸写才能拿到 09。现场数据：
+ *     寄存器写 0xD101 -> 0x0002 = 07 01（cmd=01，不报点）
+ *     裸写 D1 09      -> 0x0002 = 00 09（cmd=09，NORMAL）
+ * 返回 0 = 命令已生效；<0 = 写失败 / 读不回 / 回显不符。
+ */
 int tp_set_mode(uint8_t addr7, uint8_t cmd);
 
 /** 读 0x0002 的模式回显（2 字节，out[1] 应等于最后一条命令码） */
@@ -159,6 +168,21 @@ int tp_proximity(uint8_t addr7, int on);
 int tp_lowpower_enter(void);
 /** 退出低功耗：硬件复位 + 回 normal 模式；返回 0 成功 */
 int tp_lowpower_exit(void);
+
+/**
+ * 亮屏/唤醒后确认芯片没停在"不报点"的模式。
+ *
+ * 判据是 0x0002 回显的命令码：09(normal)、06(刚退出低功耗扫描)、00(复位后还没
+ * 收到过命令) 都算正常 -> 零动作（不写命令，避免"模式乒乓"）；
+ * 只有明确的调试/深睡模式（01/05/08/0A~0F）才硬复位 + 写回 normal；
+ * 回显读不到（I2C 抖动）-> 什么都不做，保持原行为，交给 tpstat 诊断。
+ *
+ * 返回 0 = 未动手（本来正常或读不到），1 = 复位过一次并已回 normal，<0 = 恢复失败。
+ */
+int tp_ensure_normal(void);
+
+/** 启动自检：一行 ASCII 日志回答"模式对不对 / INT 电平"，只读，不改芯片状态。 */
+void tp_boot_report(void);
 
 /** 运行时切换共享 I2C0 速率（默认 400 kHz 由 i2c_bus_init 设定；调之前先确认 SD3010 不丢应答） */
 int tp_set_i2c_freq(uint32_t hz);

@@ -85,14 +85,14 @@ int tp_write_reg16(uint8_t addr7, uint16_t reg, const uint8_t *data, uint32_t le
 int tp_cst9220_info(uint8_t addr7)
 {
     uint8_t data[4];
-    uint8_t cmd_mode[2] = { 0xD1, 0x01 };
+    /* 进命令模式统一走 tp_set_mode()（裸写 + 自检）；debug_info = 0x01 */
     uint16_t res_x, res_y, chip_type, project_id;
 
     memset(data, 0, sizeof(data));
 
     /* 关键：不进命令模式的话读出来全是 0xFFFF */
-    if (tp_write_reg16(addr7, TP_REG_CMD_MODE, cmd_mode, sizeof(cmd_mode)) < 0) {
-        printf("    write CMD_MODE failed\r\n");
+    if (tp_set_mode(addr7, TP_CMD_DEBUG_INFO) < 0) {
+        printf("    enter debug_info failed\r\n");
         return -1;
     }
     bflb_mtimer_delay_ms(10);
@@ -168,13 +168,35 @@ int tp_enter_lp_scan(void)
 }
 
 
+/*
+ * 模式命令：裸写 2 字节 {0xD1, cmd}，**不加寄存器地址**。
+ *
+ * 2026-11-27 换屏排查时真机实测：原来的写法（往 0xD101 写负载 {0xD1, cmd}）
+ * 这颗芯片不认——它把寄存器地址低字节 0x01 当成命令码，0x0002 回显永远停在
+ * 01（debug_info，**此时完全不报点**），只有裸写才能拿到 09：
+ *     寄存器写 0xD101 -> 0x0002 = 07 01（cmd=01，不报点）
+ *     裸写 D1 09      -> 0x0002 = 00 09（cmd=09，NORMAL）
+ *
+ * 所以这里是"裸写 + 读回自检"：命令没生效就返回负值，调用方（tpwake /
+ * tp_lowpower_exit / 亮屏恢复）才不会继续"以为成功了"。
+ */
 int tp_set_mode(uint8_t addr7, uint8_t cmd)
 {
-    uint8_t d[2];
+    uint8_t d[2] = { 0xD1, cmd };
+    uint8_t ms[2] = { 0, 0 };
 
-    d[0] = 0xD1;
-    d[1] = cmd;
-    return tp_write_reg16(addr7, TP_REG_CMD_MODE, d, 2);
+    if (tp_raw_write(addr7, d, sizeof(d)) < 0) {
+        return -1;
+    }
+    bflb_mtimer_delay_ms(10);
+
+    if (tp_read_mode_status(addr7, ms) < 0) {
+        return -2;                 /* 写下去了，但回显读不回来 */
+    }
+    if (ms[1] != cmd) {
+        return -3;                 /* 命令没生效（回显停在别的模式） */
+    }
+    return 0;
 }
 
 int tp_read_mode_status(uint8_t addr7, uint8_t out[2])
@@ -238,6 +260,75 @@ int tp_lowpower_exit(void)
     r = tp_set_mode(TP_ADDR_DEFAULT, TP_CMD_NORMAL);
     bflb_mtimer_delay_ms(10);
     return r;
+}
+
+/* 0x0002 回显的这条命令，芯片是否处于"能报点"的模式？
+ *
+ * 只把**明确的非报点模式**判成坏。特别注意：
+ *   · 09 = normal，06 = 刚退出低功耗扫描（亮屏走的正是这条）——都正常；
+ *   · 00 = 复位后还没收到过命令，也当正常（否则每次开机都报假警）；
+ *   · 01/05/08/0A~0F 这些是读版本、深睡、rawdata/diff/baseline 等调试模式，
+ *     芯片在它们里面**完全不报点**，必须复位。 */
+static int tp_mode_reports(uint8_t cmd)
+{
+    switch (cmd) {
+    case TP_CMD_DEBUG_INFO:   /* 01 读版本信息模式 */
+    case TP_CMD_DEEP_SLEEP:   /* 05 深睡，只有 RST 能叫醒 */
+    case TP_CMD_DEBUG_PTS:    /* 08 工具板报点模式 */
+    case 0x0A:                /* 读 rawdata */
+    case 0x0B:                /* 调试模式 */
+    case 0x0C:                /* 读校准信息 */
+    case 0x0D:                /* 读 diff */
+    case 0x0E:                /* 读 baseline */
+    case 0x0F:                /* 读低功耗扫描数据 */
+        return 0;
+    default:
+        return 1;
+    }
+}
+
+/* 亮屏恢复：只有"回显能读到、且明确是非报点模式"才动手。
+ *
+ * 以前亮屏只发裸命令 D1 06（退出低功耗扫描）就完事，芯片真停在 debug 模式时
+ * 没人发现，表现就是"亮屏后触摸整个不灵"，只能靠断电重启。
+ *
+ * 刻意保守：回显读不到（I2C 抖动）时**什么都不做**，保持旧行为，
+ * 避免为了偶发的一次读失败就把触摸芯片硬复位 160 ms。 */
+int tp_ensure_normal(void)
+{
+    uint8_t ms[2] = { 0, 0 };
+
+    bflb_mtimer_delay_ms(10);       /* 给刚发出去的 D1 06 一点时间更新回显 */
+
+    if (tp_read_mode_status(TP_ADDR_DEFAULT, ms) < 0) {
+        return 0;
+    }
+    if (tp_mode_reports(ms[1])) {
+        return 0;                   /* 正常：零动作 */
+    }
+
+    printf("[tp] mode echo %02X%02X (not reporting) -> hw reset\r\n", ms[0], ms[1]);
+    tp_hw_reset();
+    if (tp_set_mode(TP_ADDR_DEFAULT, TP_CMD_NORMAL) < 0) {
+        printf("[tp] ensure normal: FAIL\r\n");
+        return -1;
+    }
+    return 1;
+}
+
+/* 启动自检，只读：不写命令、不改模式，开机日志里就有一行"模式对不对"。 */
+void tp_boot_report(void)
+{
+    uint8_t ms[2] = { 0, 0 };
+
+    if (tp_read_mode_status(TP_ADDR_DEFAULT, ms) < 0) {
+        printf("[tp] boot: mode read FAIL (i2c), int=%d\r\n", tp_int_level());
+        return;
+    }
+    printf("[tp] boot: mode=%02X%02X %s, int=%d\r\n",
+           ms[0], ms[1],
+           tp_mode_reports(ms[1]) ? "ok" : "SUSPECT(debug-mode, no touch reports)",
+           tp_int_level());
 }
 
 /* 触摸和 RTC 共用 I2C0，默认 400 kHz（2026-10-29 触摸回归修复，见 i2c_bus.h）；

@@ -1449,6 +1449,9 @@ static void lvgl_task(void *param)
     if (tp_init() != 0) {
         printf("!! tp_init failed\r\n");
     }
+    /* 开机一行自检（只读）：以后「触摸没反应」先看这行是 ok 还是
+     * SUSPECT(debug-mode) / i2c FAIL，不用再从头查是芯片、模式还是面板。 */
+    tp_boot_report();
     tp_lvgl_init();
     board_power_set_touch_poll_cb(tp_lvgl_poll_raw);   /* R2c：BSP 不直接依赖 UI 层 */
 
@@ -1578,6 +1581,10 @@ static void lvgl_task(void *param)
                     int r = tp_exit_lp_scan();
                     printf("[tp] exit LP scan (D1 06) = %d\r\n", r);
                     s_tp_lp_scan = 0;
+                    /* 亮屏后确认芯片没停在"不报点"的模式：只有 01/05/08/0A~0F
+                     * 这类调试模式才硬复位，09(normal)/06(刚退出扫描)/00 不动，
+                     * 回显读不到也不动——别为一次 I2C 抖动打断触摸。 */
+                    tp_ensure_normal();
                     svc_ble_start();
                 } else {
                     if (!s_tp_lp_scan) {
