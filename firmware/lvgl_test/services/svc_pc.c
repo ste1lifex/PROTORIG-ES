@@ -109,6 +109,11 @@ static uint32_t s_rx_frames, s_rx_drops, s_bad_frames, s_ignored;
 static int s_no_link;
 static uint32_t s_no_link_since;
 
+/* 2026-11-28：会话在、监控页不在的"对账"计时（见 svc_pc_tick 3b） */
+static uint32_t s_page_gap_since;
+static uint8_t s_page_gap_fix_tried;
+static uint8_t s_page_gap_warned;
+
 /* BLE 请求进/出电脑模式（-1 = 无请求）；由 svc_pc_tick 在 UI 任务里消费 */
 static volatile int s_pending = -1;
 
@@ -1024,6 +1029,13 @@ void svc_pc_leave(void)
         return;
     }
     s_active = 0;
+    /* 2026-11-28：常亮策略必须在最前面解掉。
+     * 原来这行排在函数末尾（ble_link_stop 之后），中间夹着 printf /
+     * passthrough_off() / usb_pc_link_set_active()，而同一轮 UI 循环里
+     * pc_monitor_service() 在 svc_pc_tick() **之前**跑 —— 它看到 s_active 已经是 0，
+     * 会用上一帧的 session/frame 重新算一次 policy，把常亮又设回去。
+     * 结果就是"已经退出电脑模式了，屏还常亮、拔线放一分钟也不熄"。 */
+    power_set_monitor_policy(0, s_bright, 0);
     s_host_watch_on = 0;
     s_frames_suspended = 0;
     s_popup_unfrozen = 0;
@@ -1035,7 +1047,6 @@ void svc_pc_leave(void)
     printf("@PCM1 PC 0\r\n");
     /* 2026-11-14：退出电脑模式 = 蓝牙数字通道也结束（手表模式不保持连接/广播）。 */
     ble_link_stop();
-    power_set_monitor_policy(0, s_bright, 0);
     printf("[pc] leave (rx=%lu bad=%lu drop=%lu)\r\n",
            (unsigned long)s_rx_frames, (unsigned long)s_bad_frames,
            (unsigned long)s_ring_drop);
@@ -1199,8 +1210,37 @@ void svc_pc_tick(void)
         s_no_link = 0;
     }
 
-    /* 3) 常亮策略重申（用户可能在设置里改过亮度/息屏） */
-    power_set_monitor_policy(1, s_bright, s_always_on ? 1 : 0);
+    /* 3) 常亮策略重申（用户可能在设置里改过亮度/息屏）。
+     *
+     * 2026-11-28：以前这里写死 active=1，只认 s_active —— `pcmode 1` 直达、
+     * 或页面切换漏掉 close 时，会话在而监控页不在，这行就会把屏一直钉成常亮
+     * （实测症状：BLE 连着、屏幕停在表盘 0、拔线放一分钟也不熄；进出一遍
+     * "蓝牙手表模式"才恢复）。常亮必须跟着**页面**走，不能只看会话。 */
+    {
+        int live = pc_monitor_page_active();
+        power_set_monitor_policy(live, s_bright, (live && s_always_on) ? 1 : 0);
+    }
+
+    /* 3b) 状态对账：会话在、监控页不在，宽限 3 s 后把 UI 拉回监控页（只试一次）。
+     * 拉不回来就只告警，**不**强行退会话 —— shell `pcmode 1` / 台架脚本要用这个组合。
+     * svc_pc_tick 跑在 UI 任务里，调 eez_ui_monitor() 是安全的（2b 的 eez_ui_leave 同理）。 */
+    if (pc_monitor_page_active() || s_passthrough) {
+        s_page_gap_since = 0;
+        s_page_gap_fix_tried = 0;
+        s_page_gap_warned = 0;
+    } else if (!s_page_gap_since) {
+        s_page_gap_since = now ? now : 1;
+    } else if (!s_page_gap_fix_tried &&
+               (uint32_t)(now - s_page_gap_since) > 3000u) {
+        s_page_gap_fix_tried = 1;
+        printf("[pc] WARN active=%d but monitor page not shown -> show it\r\n", s_active);
+        eez_ui_monitor();
+    } else if (s_page_gap_fix_tried && !s_page_gap_warned &&
+               (uint32_t)(now - s_page_gap_since) > 6000u) {
+        s_page_gap_warned = 1;
+        printf("[pc] WARN monitor page still not shown (active=%d); always-on released\r\n",
+               s_active);
+    }
 
     /* 4) 1 s 一次状态，让电脑知道手表还活着 */
     if (svc_pc_link_up() && (now - s_last_status_ms) > 1000) {
