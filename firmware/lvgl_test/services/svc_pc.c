@@ -49,6 +49,12 @@
 #define PC_LINK_LOST_EXIT_MS 60000u  /* 无链路多久自动退出电脑模式（防耗电/防卡死） */
 #define PC_HOST_GONE_MS 3000u        /* USB IN 连续多久没完成 = PC 端进程没了（关掉 3100 会卡死） */
 #define PC_HOST_IDLE_MS 10000u       /* 非透传（电脑空闲不推像素）时的同款超时，放宽到 10 s */
+/* 2026-11-28：BLE 链路的"主机消失"超时。
+ * BLE 掉线有 PC_LINK_LOST_EXIT_MS 阀，但"连着却不发数据"（插件卡死 / 电脑睡眠 /
+ * central 挂着不回）时 svc_pc_link_up() 恒真，那个阀永远不触发。插件在会话里
+ * 恒定推 metrics（每 2 s 至少一帧、固件侧 TTL 5 s），所以"多久没收到 BLE 入帧"
+ * 就是可靠的存活信号；取 12 s = TTL 的两倍多，避免 UI 卡一下就被判死。 */
+#define PC_BLE_GONE_MS 12000u
 #define PC_PROTO_VER    1
 
 #define PC_OP_HELLO     0x01
@@ -1066,6 +1072,30 @@ static int pc_host_watch(uint32_t now)
      * （USB 枚举还在，svc_pc_link_up() 为真），于是画面静止、触摸全被转发给
      * 已经不存在的主机，用户只能靠退出/重进电脑模式自救。
      * 只要本端是 USB 链路就应该盯着 IN 完成计数；透传中 3 s，空闲态 10 s。 */
+    /* 2026-11-28：BLE 链路也要看门狗（理由见 PC_BLE_GONE_MS 注释）。
+     * 判据只看"有没有新鲜的 BLE 入帧"，不依赖 BLE 连接状态本身。 */
+    if (s_transport == SVC_PC_LINK_BLE) {
+        if (!s_host_watch_on) {             /* 刚进 BLE 会话：先取基线，给一段宽限 */
+            s_host_watch_on = 1;
+            s_host_last_change_ms = now;
+            return 0;
+        }
+        if (pc_monitor_link_age_ms() <= PC_BLE_GONE_MS) {
+            s_host_last_change_ms = now;    /* 有新鲜入帧：主机活着 */
+            return 0;
+        }
+        if ((uint32_t)(now - s_host_last_change_ms) < PC_BLE_GONE_MS) {
+            return 0;                       /* 刚进会话 / 刚恢复：宽限期内不动 */
+        }
+        s_host_gone_count++;
+        printf("[pc] host gone (no BLE data for %u ms) -> back to watch mode\r\n",
+               (unsigned)PC_BLE_GONE_MS);
+        s_host_watch_on = 0;
+        s_pending_ui_leave = 1;
+        svc_pc_leave();
+        return 1;
+    }
+
     if (s_transport != SVC_PC_LINK_USB) {
         s_host_watch_on = 0;
         return 0;
@@ -1167,6 +1197,7 @@ void svc_pc_tick(void)
     if (t != s_transport) {
         printf("[pc] transport %d -> %d\r\n", s_transport, t);
         s_transport = t;
+        s_host_watch_on = 0;   /* 换链路 = 重新取看门狗基线，别拿旧链路的时间判新链路 */
         /* 链路换了就等于帧边界重新开始：清掉半截帧；只有 USB 才接管 RX */
         usb_pc_link_set_active(t == SVC_PC_LINK_USB);
         /* 插拔 USB / BLE 连断都要重新告诉电脑："现在是/不是二进制模式"，
@@ -1255,7 +1286,7 @@ int svc_pc_cmd(int argc, char **argv)
     if (argc < 2) {
         printf("[pc] active=%d transport=%d passthrough=%d usbraw=%d bright=%u rx=%lu "
                "bad=%lu ignored=%lu ring_drop=%lu tile_open=%d cfg=%d susp=%d susp_ticks=%lu "
-               "frames_susp=%d popup=%d host_gone=%lu\r\n",
+               "frames_susp=%d popup=%d host_gone=%lu ble_age=%lu\r\n",
                s_active, s_transport, s_passthrough, protorig_usb_pc_active,
                (unsigned)s_bright,
                (unsigned long)s_rx_frames, (unsigned long)s_bad_frames,
@@ -1263,7 +1294,8 @@ int svc_pc_cmd(int argc, char **argv)
                (int)usb_device_is_configured(0), (int)usb_device_is_suspend(0),
                (unsigned long)s_usb_susp_ticks,
                s_frames_suspended, s_popup_unfrozen,
-               (unsigned long)s_host_gone_count);
+               (unsigned long)s_host_gone_count,
+               (unsigned long)pc_monitor_link_age_ms());   /* 0xFFFFFFFF = 还没收到过 */
         return 0;
     }
     if (!strcmp(argv[1], "1")) {

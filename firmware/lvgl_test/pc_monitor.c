@@ -1064,6 +1064,27 @@ void pc_monitor_set_metrics(int cpu, int gpu, int ram, int vram, int brand,
     s_ext_valid = 1;
 }
 
+/* 给 svc_pc 的 BLE 主机存活看门狗用：最近一条 BLE 入帧的年龄（毫秒）。
+ * metrics(0x52) 与卡片帧(0x53..0x57) 都算"主机还活着"，取两者较新的那个。
+ * 0xFFFFFFFF = 本次上电还没收到过任何 BLE 入帧。
+ * 注意：s_ext_* 在文件后半才声明，所以本函数只能放在这里，不能提前。 */
+uint32_t pc_monitor_link_age_ms(void)
+{
+    uint32_t now = lv_tick_get();
+    uint32_t age = 0xFFFFFFFFu;
+
+    if (s_ext_valid) {
+        age = (uint32_t)(now - s_ext_ms);
+    }
+    if (s_card_live) {
+        uint32_t card_age = (uint32_t)(now - s_card_ms);
+        if (card_age < age) {
+            age = card_age;
+        }
+    }
+    return age;
+}
+
 /* 卡片态：大数值让位给卡片，切成 v4 的 compact 一行（卡片没了再切回来） */
 static void metrics_mode(int compact_on)
 {

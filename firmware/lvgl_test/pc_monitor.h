@@ -68,6 +68,11 @@ void pc_monitor_page_enter(void);
 void pc_monitor_page_exit(void);
 int  pc_monitor_page_active(void);
 
+/* 最近一次"主机→手表"BLE 数据帧（metrics 0x52 / 卡片帧）距今多久，毫秒。
+ * 0xFFFFFFFF = 本次上电还没收到过任何 BLE 入帧。
+ * 给 svc_pc 的 BLE 主机存活看门狗用：BLE 连接本身不会因为主机卡死而断开。 */
+uint32_t pc_monitor_link_age_ms(void);
+
 /* P0-4：USB 监控是表盘的 -1 屏，只有 USB 真的被主机配置起来才让右滑进去。
  * 状态由 main.c 的监控服务每个周期写一次（usb_device_is_configured(0)），
  * 读写都在 LVGL 任务里，不需要锁。 */
